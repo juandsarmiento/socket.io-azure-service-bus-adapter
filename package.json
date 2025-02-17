@@ -1,11 +1,11 @@
 {
-  "name": "@socket.io/azure-service-bus-adapter",
+  "name": "@juandsarmiento/azure-service-bus-adapter",
   "version": "0.1.0",
   "description": "The Socket.IO adapter for Azure Service Bus, allowing to broadcast events between several Socket.IO servers",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git@github.com:socketio/socket.io-azure-service-bus-adapter.git"
+    "url": "git@github.com:juandsarmiento/socket.io-azure-service-bus-adapter.git"
   },
   "files": [
     "dist/"
@@ -31,6 +31,7 @@
     "@types/expect.js": "^0.3.29",
     "@types/mocha": "^10.0.6",
     "@types/node": "^14.14.7",
+    "dotenv": "^16.4.7",
     "expect.js": "0.3.1",
     "mocha": "^10.2.0",
     "nyc": "^15.1.0",

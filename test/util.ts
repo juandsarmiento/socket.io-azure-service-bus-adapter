@@ -57,8 +57,12 @@ export function setup() {
       );
 
       const httpServer = createServer();
+      const { adapter } = createAdapter(
+        serviceBusClient,
+        serviceBusAdminClient
+      );
       const io = new Server(httpServer, {
-        adapter: createAdapter(serviceBusClient, serviceBusAdminClient),
+        adapter,
       });
 
       httpServer.listen(() => {

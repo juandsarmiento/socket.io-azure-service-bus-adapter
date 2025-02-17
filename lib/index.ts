@@ -18,6 +18,7 @@ import type {
   ServiceBusReceivedMessage,
   ServiceBusReceiverOptions,
   ServiceBusSender,
+  SubscribeOptions,
 } from "@azure/service-bus";
 
 const debug = require("debug")("socket.io-azure-service-bus-adapter");
@@ -49,6 +50,11 @@ export interface AdapterOptions extends ClusterAdapterOptions {
    * The options used to create the receiver.
    */
   receiverOptions?: ServiceBusReceiverOptions;
+
+  /**
+   * The options used to subscribe to the topic: Ex: { maxConcurrentCalls: 1 }
+   */
+  subscribeOptions?: SubscribeOptions;
 }
 
 async function createSubscription(
@@ -78,7 +84,6 @@ async function createSubscription(
   );
 
   debug("subscription [%s] was successfully created", subscriptionName);
-
   return {
     topicName,
     subscriptionName,
@@ -122,29 +127,32 @@ export function createAdapter(
     opts
   )
     .then(() => {
-      receiver.subscribe({
-        async processMessage(
-          message: ServiceBusReceivedMessage
-        ): Promise<void> {
-          if (
-            !message.applicationProperties ||
-            typeof message.applicationProperties["nsp"] !== "string"
-          ) {
-            debug("ignore malformed message");
-            return;
-          }
-          const namespace = message.applicationProperties["nsp"];
+      receiver.subscribe(
+        {
+          async processMessage(
+            message: ServiceBusReceivedMessage
+          ): Promise<void> {
+            if (
+              !message.applicationProperties ||
+              typeof message.applicationProperties["nsp"] !== "string"
+            ) {
+              debug("ignore malformed message");
+              return;
+            }
+            const namespace = message.applicationProperties["nsp"];
 
-          namespaceToAdapters.get(namespace)?.onRawMessage(message);
+            namespaceToAdapters.get(namespace)?.onRawMessage(message);
 
-          if (receiver.receiveMode === "peekLock") {
-            await receiver.completeMessage(message);
-          }
+            if (receiver.receiveMode === "peekLock") {
+              await receiver.completeMessage(message);
+            }
+          },
+          async processError(args: ProcessErrorArgs): Promise<void> {
+            debug("an error has occurred: %s", args.error.message);
+          },
         },
-        async processError(args: ProcessErrorArgs): Promise<void> {
-          debug("an error has occurred: %s", args.error.message);
-        },
-      });
+        opts?.subscribeOptions
+      );
     })
     .catch((err) => {
       debug(
@@ -153,7 +161,7 @@ export function createAdapter(
       );
     });
 
-  return function (nsp: any) {
+  const fn: (nsp: any) => PubSubAdapter = function (nsp: any) {
     const adapter = new PubSubAdapter(nsp, sender, opts);
 
     namespaceToAdapters.set(nsp.name, adapter);
@@ -198,6 +206,10 @@ export function createAdapter(
     };
 
     return adapter;
+  };
+  return {
+    adapter: fn,
+    subscriptionName: subscriptionName,
   };
 }
 

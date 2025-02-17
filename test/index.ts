@@ -1,6 +1,7 @@
+import "dotenv/config";
 import { Server, Socket as ServerSocket } from "socket.io";
 import { Socket as ClientSocket } from "socket.io-client";
-import expect = require("expect.js");
+import expect from "expect.js";
 import { times, sleep, setup, shouldNotHappen } from "./util";
 
 describe("@socket.io/azure-service-bus-adapter", () => {
