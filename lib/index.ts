@@ -87,9 +87,10 @@ export function createAdapter(
   const namespaceToAdapters = new Map<string, PubSubAdapter>();
 
   const topicName = opts.topicName || "socket.io";
+  // subscriptionName can't be longer than 50 characters
   const subscriptionName = `${opts.subscriptionPrefix || "socket.io"}-${
-    opts.subscriptionName ?? randomId()
-  }`;
+    opts.subscriptionName || randomId()
+  }`.substring(0, 50);
 
   const sender = client.createSender(topicName);
   const receiver = client.createReceiver(

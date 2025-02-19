@@ -1,6 +1,6 @@
 {
   "name": "@juandsarmiento/azure-service-bus-adapter",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "The Socket.IO adapter for Azure Service Bus, allowing to broadcast events between several Socket.IO servers",
   "license": "MIT",
   "repository": {
