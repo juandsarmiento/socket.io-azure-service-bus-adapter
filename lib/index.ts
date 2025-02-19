@@ -9,81 +9,54 @@ import type {
 import { encode, decode } from "@msgpack/msgpack";
 import { randomBytes } from "node:crypto";
 import type {
-  CreateSubscriptionOptions,
-  CreateTopicOptions,
   ProcessErrorArgs,
   ServiceBusAdministrationClient,
   ServiceBusClient,
   ServiceBusMessage,
   ServiceBusReceivedMessage,
-  ServiceBusReceiverOptions,
   ServiceBusSender,
-  SubscribeOptions,
 } from "@azure/service-bus";
+import { AdapterOptions } from "./interfaces/adapter-options.interface";
+import { Logger } from "./interfaces/logger.interface";
 
-const debug = require("debug")("socket.io-azure-service-bus-adapter");
+// const debug = require("debug")("socket.io-azure-service-bus-adapter");
 
 function randomId() {
   return randomBytes(8).toString("hex");
-}
-
-export interface AdapterOptions extends ClusterAdapterOptions {
-  /**
-   * The name of the topic.
-   * @default "socket.io"
-   */
-  topicName?: string;
-  /**
-   * The options used to create the topic.
-   */
-  topicOptions?: CreateTopicOptions;
-  /**
-   * The prefix of the subscription (one subscription will be created per Socket.IO server in the cluster).
-   * @default "socket.io"
-   */
-  subscriptionPrefix?: string;
-  /**
-   * The options used to create the subscription.
-   */
-  subscriptionOptions?: CreateSubscriptionOptions;
-  /**
-   * The options used to create the receiver.
-   */
-  receiverOptions?: ServiceBusReceiverOptions;
-
-  /**
-   * The options used to subscribe to the topic: Ex: { maxConcurrentCalls: 1 }
-   */
-  subscribeOptions?: SubscribeOptions;
 }
 
 async function createSubscription(
   adminClient: ServiceBusAdministrationClient,
   topicName: string,
   subscriptionName: string,
-  opts: AdapterOptions
+  opts: AdapterOptions,
+  logger: Logger
 ) {
   try {
     await adminClient.getTopic(topicName);
 
-    debug("topic [%s] already exists", topicName);
+    logger.warn(`topic ${topicName} already exists`);
   } catch (e) {
-    debug("topic [%s] does not exist", topicName);
-
+    logger.error(`topic ${topicName} does not exist`);
     await adminClient.createTopic(topicName, opts.topicOptions);
-
-    debug("topic [%s] was successfully created", topicName);
+    logger.warn(`topic ${topicName} was successfully created`);
   }
 
-  debug("creating subscription [%s]", subscriptionName);
+  logger.debug(`creating subscription ${subscriptionName}`);
 
-  await adminClient.createSubscription(
-    topicName,
-    subscriptionName,
-    opts.subscriptionOptions
-  );
+  try {
+    await adminClient.getSubscription(topicName, subscriptionName);
+    logger.warn(`subscription ${subscriptionName} already exists`);
+  } catch (e) {
+    logger.warn(`subscription ${subscriptionName} does not exist`);
+    await adminClient.createSubscription(
+      topicName,
+      subscriptionName,
+      opts.subscriptionOptions
+    );
+    logger.warn(`subscription ${subscriptionName} was successfully created`);
+  }
 
-  debug("subscription [%s] was successfully created", subscriptionName);
   return {
     topicName,
     subscriptionName,
@@ -104,14 +77,19 @@ async function createSubscription(
 export function createAdapter(
   client: ServiceBusClient,
   adminClient: ServiceBusAdministrationClient,
-  opts: AdapterOptions = {}
+  opts: AdapterOptions = {},
+  logger: Logger = {
+    debug: () => {},
+    error: console.error,
+    warn: console.warn,
+  }
 ) {
   const namespaceToAdapters = new Map<string, PubSubAdapter>();
 
   const topicName = opts.topicName || "socket.io";
-  const subscriptionName = `${
-    opts.subscriptionPrefix || "socket.io"
-  }-${randomId()}`;
+  const subscriptionName = `${opts.subscriptionPrefix || "socket.io"}-${
+    opts.subscriptionName ?? randomId()
+  }`;
 
   const sender = client.createSender(topicName);
   const receiver = client.createReceiver(
@@ -124,7 +102,8 @@ export function createAdapter(
     adminClient,
     topicName,
     subscriptionName,
-    opts
+    opts,
+    logger
   )
     .then(() => {
       receiver.subscribe(
@@ -136,7 +115,7 @@ export function createAdapter(
               !message.applicationProperties ||
               typeof message.applicationProperties["nsp"] !== "string"
             ) {
-              debug("ignore malformed message");
+              logger.warn("ignore malformed message");
               return;
             }
             const namespace = message.applicationProperties["nsp"];
@@ -148,16 +127,15 @@ export function createAdapter(
             }
           },
           async processError(args: ProcessErrorArgs): Promise<void> {
-            debug("an error has occurred: %s", args.error.message);
+            logger.error(`an error has occurred: ${args.error.message}`);
           },
         },
         opts?.subscribeOptions
       );
     })
     .catch((err) => {
-      debug(
-        "an error has occurred while creating the subscription: %s",
-        err.message
+      logger.error(
+        `an error has occurred while creating the subscription: ${err.message}`
       );
     });
 
@@ -182,7 +160,7 @@ export function createAdapter(
       namespaceToAdapters.delete(nsp.name);
 
       if (namespaceToAdapters.size === 0) {
-        debug("deleting subscription [%s]", subscriptionName);
+        logger.warn(`deleting subscription ${subscriptionName}`);
 
         return Promise.all([
           receiver.close(),
@@ -190,15 +168,13 @@ export function createAdapter(
           adminClient
             .deleteSubscription(topicName, subscriptionName)
             .then(() => {
-              debug(
-                "subscription [%s] was successfully deleted",
-                subscriptionName
+              logger.warn(
+                `subscription ${subscriptionName} was successfully deleted`
               );
             })
             .catch((err) => {
-              debug(
-                "an error has occurred while deleting the subscription: %s",
-                err.message
+              logger.error(
+                `an error has occurred while deleting the subscription: ${err.message}`
               );
             }),
         ]);
@@ -259,18 +235,18 @@ export class PubSubAdapter extends ClusterAdapterWithHeartbeat {
 
   public onRawMessage(rawMessage: ServiceBusMessage) {
     if (rawMessage.applicationProperties!["uid"] === this.uid) {
-      debug("ignore message from self");
+      // debug("ignore message from self");
       return;
     }
 
     const requesterUid = rawMessage.applicationProperties!["requesterUid"];
     if (requesterUid && requesterUid !== this.uid) {
-      debug("ignore response for another node");
+      // debug("ignore response for another node");
       return;
     }
 
     const decoded = decode(rawMessage.body);
-    debug("received %j", decoded);
+    // debug("received %j", decoded);
 
     if (requesterUid) {
       this.onResponse(decoded as ClusterResponse);
